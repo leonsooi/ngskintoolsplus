@@ -10,6 +10,16 @@ Quick hacks just to get the job done when needed. Should be modularized properly
 useful utilities
 '''
 
+def soloLayer(mll, layerId):
+    '''
+    enabled layerId, disables the rest
+    '''
+    allLayers = mll.listLayers()
+    
+    for curLayerId, _layerName in allLayers:
+        mll.setLayerEnabled(curLayerId, layerId==curLayerId)
+    
+
 def unifyMask(vertsList, mll, layerId):
     '''
     average mask weights on vertsList
