@@ -1,11 +1,5 @@
-'''
-Created on 10/10/2013
-
-@author: Leon
-'''
-
-from ngSkinTools.mllInterface import MllInterface 
 import maya.cmds as mc
+from ngSkinTools.mllInterface import MllInterface 
 
 def soloLayer(mll, layerId):
     '''
@@ -53,6 +47,7 @@ def queryWeights(skn, mesh):
         
     return vertWeightsPerInfluence
 
+
 def getLayerName(mll, layerId):
     '''
     get layerName from id
@@ -63,6 +58,7 @@ def getLayerName(mll, layerId):
         if curLayerId == layerId:
             return layerName
         
+        
 def getLayerId(mll, layerName):
     '''
     get layerId from name
@@ -72,10 +68,32 @@ def getLayerId(mll, layerName):
     for layerId, curLayerName in layers:
         if curLayerName == layerName:
             return layerId
+        
+        
+def getInfluenceId(mll, layerId, influenceName):
+    '''
+    get influenceId from name
+    '''
+    influences = mll.listLayerInfluences(layerId, False)
     
-def copySkinLayer(srcMeshName, destMeshName, layerName, influenceAssociation='closestJoint', surfaceAssociation='closestComponent', sampleSpace=0):
+    for name, index in influences:
+        if influenceName == name:
+            return index
+        
+
+def setInfluenceWeight(skn, mesh, influenceName, weightList):
     '''
+    Set weights on influence using a float list
     '''
+    for vertId in range(len(weightList)):
+        if weightList[vertId]:
+            mc.skinPercent(skn, mesh+'.vtx[%d]'%vertId, transformValue=[influenceName, weightList[vertId]])
+    
+
+def copySkinLayerByName(srcMeshName, destMeshName, layerName, influenceAssociation='closestJoint', surfaceAssociation='closestComponent', sampleSpace=0):
+    '''
+    Actual work is done here. Copies an individual layer from srcMesh to destMesh
+    '''  
     srcMll = MllInterface()
     destMll = MllInterface()
     
@@ -84,6 +102,9 @@ def copySkinLayer(srcMeshName, destMeshName, layerName, influenceAssociation='cl
     
     _, srcSkn = srcMll.getTargetInfo()
     _, destSkn = destMll.getTargetInfo()
+    
+    srcMll.initLayers()
+    destMll.initLayers()
     
     # get layerId from layerName, and check that this is a valid layer
     srcLayerId = getLayerId(srcMll, layerName)
@@ -117,16 +138,36 @@ def copySkinLayer(srcMeshName, destMeshName, layerName, influenceAssociation='cl
     # even if influence weights are transfered by other methods
     #===========================================================================
     
-    # create tempJnt
-    
-    
-    # apply mask weights to tempJnt
-    
-    
-    # use maya's copySkinWeights command, with name as influence association
-    
-    
-    # query and catch weights
+    if origMaskWeights:
+        # create tempJnt
+        tempJnt = mc.joint(n='layerMaskTransfer_tempJnt')
+        mc.skinCluster(srcSkn, edit=True, addInfluence=tempJnt)
+        
+        # also create an additional tempJnt to hold the "reversed" weights
+        tempHoldJnt = mc.joint(n='layerMaskTransferHold_tempJnt')
+        mc.skinCluster(srcSkn, edit=True, addInfluence=tempHoldJnt, weight=1, lockWeights=True)
+        mc.skinCluster(srcSkn, inf=tempHoldJnt, e=True, lockWeights=False);
+        
+        # apply mask weights to tempJnt
+        setInfluenceWeight(srcSkn, srcMeshName, tempJnt, origMaskWeights)
+        
+        # use maya's copySkinWeights command, with name as influence association
+        mc.skinCluster(destSkn, edit=True, addInfluence=tempJnt)
+        mc.skinCluster(destSkn, edit=True, addInfluence=tempHoldJnt)
+        mc.copySkinWeights(ss=srcSkn, ds=destSkn, ia="name", sa=surfaceAssociation, spa=sampleSpace)
+        
+        # query and catch weights
+        destMaskWeights = queryWeights(destSkn, destMeshName)[-2]
+        
+        # remove tempJnt
+        mc.skinCluster(srcSkn, edit=True, removeInfluence=tempJnt)
+        mc.skinCluster(srcSkn, edit=True, removeInfluence=tempHoldJnt)
+        mc.skinCluster(destSkn, edit=True, removeInfluence=tempJnt)
+        mc.skinCluster(destSkn, edit=True, removeInfluence=tempHoldJnt)
+        mc.delete(tempJnt) # automatically deletes the holdJnt as well since it is a child
+    else:
+        # if origMaskWeights was uninitialized, just use []
+        destMaskWeights = []
     
     #===========================================================================
     # Reset original skin layer
@@ -142,11 +183,18 @@ def copySkinLayer(srcMeshName, destMeshName, layerName, influenceAssociation='cl
     #===========================================================================
     # Add layer to destination skin
     #===========================================================================
-    print destInfluenceWeights
+    # print destInfluenceWeights
     
     destLayerId = destMll.createLayer(layerName, forceEmpty=True)
     
     influenceCount = len(mc.skinCluster(destSkn, q=True, inf=True))
-        
+    
+    # set influence weights
     for influenceId in range(influenceCount):
-        destMll.setInfluenceWeights(destLayerId, influenceId, destInfluenceWeights[influenceId])
+        weights = destInfluenceWeights[influenceId]
+        # check if the influence has non-zero values, to reduce number of calls
+        if not all(val==0 for val in weights):
+            destMll.setInfluenceWeights(destLayerId, influenceId, weights)
+        
+    # set mask weights
+    destMll.setLayerMask(destLayerId, destMaskWeights)
