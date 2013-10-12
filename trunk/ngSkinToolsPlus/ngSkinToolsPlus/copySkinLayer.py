@@ -1,5 +1,7 @@
 import maya.cmds as mc
 from ngSkinTools.mllInterface import MllInterface 
+from ngSkinTools.ui.layerDataModel import LayerDataModel
+
 
 def soloLayer(mll, layerId):
     '''
@@ -88,7 +90,75 @@ def setInfluenceWeight(skn, mesh, influenceName, weightList):
     for vertId in range(len(weightList)):
         if weightList[vertId]:
             mc.skinPercent(skn, mesh+'.vtx[%d]'%vertId, transformValue=[influenceName, weightList[vertId]])
+   
+def getAllLayersNames(mll):
+    '''
+    returns list of layer names
+    '''
+    layerNames = []
+    layersIter = mll.listLayers()
     
+    for layerId, layerName in layersIter:
+        layerNames.append(layerName)
+        
+    return layerNames
+
+
+def copySkinLayersGo():
+    '''
+    Execute copySkinLayers from the UI
+    
+    Select srcMesh, shift-select destMesh
+    [Optional] select layers in the lister (if no layers selected, all will be copied)
+    Execute procedure.
+    '''
+    
+    srcMeshName, destMeshName = mc.ls(os=True)[:2]
+    
+    srcMll = MllInterface()
+    destMll = MllInterface()
+    
+    srcMll.setCurrentMesh(srcMeshName)
+    destMll.setCurrentMesh(destMeshName)
+    
+    # check that selected objects are valid
+    if False in (srcMll.getLayersAvailable(), destMll.getLayersAvailable()):
+        mc.error("Skinning layers must be initialized on both source and destination meshes")
+        
+    # get selected layers
+    selectedLayerIds = LayerDataModel.getInstance().layerListsUI.getSelectedLayers() # returns list of layerIds
+    # convert to layerNames, to be consistent with other procedures
+    selectedLayerNames = []
+    for layerId, layerName in srcMll.listLayers():
+        if layerId in selectedLayerIds:
+            selectedLayerNames.append(layerName)
+                
+    # get options set in UI
+    # hard code for now
+    influenceAssociation = 'name'
+    surfaceAssociation = 'closestPoint'
+    sampleSpace = 0
+    
+    # execute
+    copySkinLayers(srcMeshName, destMeshName, selectedLayerNames, influenceAssociation, surfaceAssociation, sampleSpace)
+
+def copySkinLayers(srcMeshName, destMeshName, layers=None, influenceAssociation='closestJoint', surfaceAssociation='closestComponent', sampleSpace=0):
+    '''
+    layers [list] - names of layers to be copied
+    if layers=None, all layers will be copied
+    '''
+    srcMll = MllInterface()
+    destMll = MllInterface()
+    
+    srcMll.setCurrentMesh(srcMeshName)
+    destMll.setCurrentMesh(destMeshName)
+    
+    if not layers:
+        layers = getAllLayersNames(srcMll)
+        
+    for eachLayer in layers:
+        copySkinLayerByName(srcMeshName, destMeshName, eachLayer, influenceAssociation, surfaceAssociation, sampleSpace)
+     
 
 def copySkinLayerByName(srcMeshName, destMeshName, layerName, influenceAssociation='closestJoint', surfaceAssociation='closestComponent', sampleSpace=0):
     '''
@@ -102,9 +172,6 @@ def copySkinLayerByName(srcMeshName, destMeshName, layerName, influenceAssociati
     
     _, srcSkn = srcMll.getTargetInfo()
     _, destSkn = destMll.getTargetInfo()
-    
-    srcMll.initLayers()
-    destMll.initLayers()
     
     # get layerId from layerName, and check that this is a valid layer
     srcLayerId = getLayerId(srcMll, layerName)
@@ -137,6 +204,8 @@ def copySkinLayerByName(srcMeshName, destMeshName, layerName, influenceAssociati
     # This ensures that we can transfer the mask weights by joint name,
     # even if influence weights are transfered by other methods
     #===========================================================================
+    
+    mc.select(cl=True)
     
     if origMaskWeights:
         # create tempJnt
