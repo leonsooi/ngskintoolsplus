@@ -7,7 +7,7 @@ Quick hacks just to get the job done when needed. Should be modularized properly
 '''
 
 '''
-useful utilities
+USEFUL UTILITIES
 '''
 
 def soloLayer(mll, layerId):
