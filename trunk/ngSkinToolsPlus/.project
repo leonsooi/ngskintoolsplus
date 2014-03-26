@@ -3,6 +3,7 @@
 	<name>ngSkinToolsPlus</name>
 	<comment></comment>
 	<projects>
+		<project>ls-rigging-tools</project>
 		<project>ngSkinTools</project>
 	</projects>
 	<buildSpec>

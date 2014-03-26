@@ -1,7 +1,145 @@
 import maya.cmds as mc
+
 from ngSkinTools.mllInterface import MllInterface 
 from ngSkinTools.ui.layerDataModel import LayerDataModel
+from ngSkinTools.ui.basetoolwindow import BaseToolWindow
+from ngSkinTools.ui.mainwindow import MainWindow
+from ngSkinTools.ui.basetab import BaseTab
+from ngSkinTools.ui.uiWrappers import DropDownField, RadioButtonField, CheckBoxField
+from ngSkinTools.doclink import SkinToolsDocs
+from ngSkinTools.log import LoggerFactory
 
+
+#===============================================================================
+# UI - similar options to Maya's copySkinWeightsOptions UI
+#===============================================================================
+
+class CopySkinLayersWindow(BaseToolWindow):
+    def __init__(self, windowName):
+        BaseToolWindow.__init__(self, windowName)
+        self.windowTitle = 'Copy Skin Layers'
+        self.sizeable = True
+        self.defaultHeight = 350
+        self.defaultWidth = 300
+        
+    @staticmethod
+    def getInstance():
+        return BaseToolWindow.getWindowInstance('CopySkinLayersWindow', CopySkinLayersWindow)
+    
+    def createWindow(self):
+        BaseToolWindow.createWindow(self)
+        
+        self.content = CopyLayersTab()
+        self.content.parentWindow = self
+        self.content.createUI(self.windowName)
+        
+class CopyLayersTab(BaseTab):
+    log = LoggerFactory.getLogger('Copy Skin Layers Tab')
+    VAR_PREFIX = 'ngSkinToolsCopySkinLayersTab_'
+    
+    def __init__(self):
+        BaseTab.__init__(self)
+        
+    def createUI(self, parent):
+        # base layout
+        
+        buttons = []
+        buttons.append(('Copy', self.copySkinLayers, ''))
+        buttons.append(('Close', self.closeWindow, ''))
+        
+        self.cmdLayout = self.createCommandLayout(buttons, SkinToolsDocs.INITWEIGHTTRANSFER_INTERFACE)
+        
+        self.createSurfaceAssociationGroup()
+        self.createInfluenceAssociationGroup()
+        self.createOptionsGroup()
+        
+        self.updateLayoutEnabled()
+        
+    def createSurfaceAssociationGroup(self):
+        group = self.createUIGroup(self.cmdLayout.innerLayout, 'Surface Association')
+        
+        self.createFixedTitledRow(group, 'Surface Association')
+        mc.radioCollection()
+        self.controls.radioClosestPoint = RadioButtonField(self.VAR_PREFIX+'closestPoint', defaultValue=1, label='Closest point on surface', 
+                                                           annotation='Closest point on surface')
+        self.controls.radioRaycast = RadioButtonField(self.VAR_PREFIX+'rayCast', defaultValue=0, label='Ray cast', 
+                                                           annotation='Ray cast')
+        self.controls.radioClosestComponent = RadioButtonField(self.VAR_PREFIX+'closestComponent', defaultValue=0, label='Closest component', 
+                                                           annotation='Closest component')
+        """
+        # To be added - transfer weights by UVs
+        self.controls.radioUVSpace = RadioButtonField(self.VAR_PREFIX+'UVSpace', defaultValue=1, label='UV space', 
+                                                           annotation='UV space')
+                                                           """
+        
+        self.createFixedTitledRow(group, 'Sample space')
+        self.controls.sampleSpace = DropDownField(self.VAR_PREFIX+'sampleSpace')
+        self.controls.sampleSpace.beginRebuildItems()
+        self.controls.sampleSpace.addOption('World')
+        self.controls.sampleSpace.addOption('Local')
+        self.controls.sampleSpace.endRebuildItems()
+    
+    def createOptionsGroup(self):
+        group = self.createUIGroup(self.cmdLayout.innerLayout, 'Options')
+        
+        self.createFixedTitledRow(group, 'Layers')
+        self.controls.selLayers = DropDownField(self.VAR_PREFIX+'selLayers')
+        self.controls.selLayers.beginRebuildItems()
+        self.controls.selLayers.addOption('All layers in skin cluster')
+        self.controls.selLayers.addOption('Selected layers in lister')
+        self.controls.selLayers.endRebuildItems()
+        
+        self.createFixedTitledRow(group, 'Normalization')
+        self.controls.normalization = DropDownField(self.VAR_PREFIX+'normalization')
+        self.controls.normalization.beginRebuildItems()
+        self.controls.normalization.addOption('On')
+        self.controls.normalization.addOption('Off')
+        self.controls.normalization.endRebuildItems()
+        
+    def createInfluenceAssociationGroup(self):
+        '''
+        '''
+        group = self.createUIGroup(self.cmdLayout.innerLayout, 'Influence Association')
+        
+        for index in range(3):
+            self.createFixedTitledRow(group, 'Influence Association %d' % (index+1))
+            self.controls.__dict__['influenceAssoc%d' % (index+1)] = DropDownField(self.VAR_PREFIX+'influenceAssoc%d' % (index+1))
+            self.controls.__dict__['influenceAssoc%d' % (index+1)].beginRebuildItems()
+            if index:
+                # 2nd and 3rd options are set to "None" by default
+                self.controls.__dict__['influenceAssoc%d' % (index+1)].addOption('None')
+            self.controls.__dict__['influenceAssoc%d' % (index+1)].addOption('Closest joint')
+            self.controls.__dict__['influenceAssoc%d' % (index+1)].addOption('Closest bone')
+            self.controls.__dict__['influenceAssoc%d' % (index+1)].addOption('One to one')
+            self.controls.__dict__['influenceAssoc%d' % (index+1)].addOption('Label')
+            self.controls.__dict__['influenceAssoc%d' % (index+1)].addOption('Name')
+            self.controls.__dict__['influenceAssoc%d' % (index+1)].endRebuildItems()
+
+        
+    def updateLayoutEnabled(self):
+        '''
+        '''
+    
+    def copySkinLayers(self, *args):
+        '''
+        '''
+        # get layers that we want to copy
+        layers = []
+        
+        if self.controls.selLayers.getValue():
+            # if set to "Selected layers in lister"
+            layerLister = MainWindow.getInstance().targetUI.layersUI.getSelectedLayers()
+            print layerLister
+        
+        
+    def closeWindow(self, *args):
+        '''
+        '''
+        self.parentWindow.closeWindow()
+
+#===============================================================================
+# UTILITIES
+#===============================================================================
 
 def soloLayer(mll, layerId):
     '''
