@@ -8,15 +8,36 @@ import pymel.core as pm
 
 import utils.rigging as rt
 
-def relaxLayerWeights(mll, layerId, maskVerts=0):
+mel = pm.language.Mel()
+
+def smoothLayerMask(mll, layerId, intensity=1.0):
+    '''
+    '''
+    mll.setCurrentLayer(layerId)
+    mll.ngSkinLayerCmd(cpt='mask')
+    
+    # if intensity is larger than 1.0, use multiple iterations
+    while intensity > 1.0:
+        mll.ngSkinLayerCmd(paintOperation=4, paintIntensity=1.0)
+        mll.ngSkinLayerCmd(paintFlood=True)
+        intensity = intensity - 1.0
+    
+    mll.ngSkinLayerCmd(paintOperation=4, paintIntensity=intensity)
+    mll.ngSkinLayerCmd(paintFlood=True)
+    
+    
+def relaxLayerWeights(mll, layerId, expand=True, 
+                      relaxSteps=33, relaxSize=0.1708, relaxAllAmount=0.5):
     '''
     relax all weights on layer
-    maskVerts closest to joints will not be relaxed
+    verts closest to joints will be masked
+    expand will expand the mask
     '''
     infIter = mll.listLayerInfluences(2)
     infs = list(infIter)
     mesh = mll.getTargetInfo()[0]
     mesh = pm.PyNode(mesh)
+    
     # get vert closest to joints
     vertIds = []
     for inf, infId in infs:
@@ -24,9 +45,32 @@ def relaxLayerWeights(mll, layerId, maskVerts=0):
         faceId = mesh.getClosestPoint(pos, space='world')[1]
         faceVertIds = mesh.f[faceId].getVertices()
         closestVertId = min(faceVertIds, key=lambda vtxId: (mesh.vtx[vtxId].getPosition() - pos).length())
-        vertIds.append(closestVertId)
+        
+        closestVertIds = [closestVertId]
+        # expand ids if needed
+        if expand:
+            connectedVertices = mesh.vtx[closestVertId].connectedVertices()
+            closestVertIds += [vtx.index() for vtx in connectedVertices]
+        
+        vertIds += closestVertIds
     
-    vertsMask = mesh.vtx[vertIds]
+    vertCount = mll.getVertCount()
+    
+    # invert vertIds
+    # just use strings since we're going to pass into ngSkinRelax
+    vertsToRelax = [mesh.name() + '.vtx[%d]' % id_ for id_ in range(vertCount) if id_ not in vertIds]
+    
+    args = {}
+    args['numSteps']=relaxSteps
+    args['stepSize']=relaxSize
+    mel.ngSkinRelax(vertsToRelax,**args)
+    
+    # run another relax to clean up any artefacts
+    # relax all
+    args = {}
+    args['numSteps']=int(relaxSteps * relaxAllAmount)
+    args['stepSize']=relaxSize * relaxAllAmount
+    mel.ngSkinRelax(mesh.name(),**args)
     
     
 
