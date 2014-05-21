@@ -126,10 +126,11 @@ class CopyLayersTab(BaseTab):
         # get layers that we want to copy
         layers = []
         
+        print 'selLayers: ', self.controls.selLayers.getValue()
         if self.controls.selLayers.getValue():
             # if set to "Selected layers in lister"
             layerLister = MainWindow.getInstance().targetUI.layersUI.getSelectedLayers()
-            print layerLister
+            print 'LayerLister: ', layerLister
         
         
     def closeWindow(self, *args):
