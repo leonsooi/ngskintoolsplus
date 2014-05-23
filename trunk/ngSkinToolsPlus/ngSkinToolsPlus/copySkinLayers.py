@@ -1,3 +1,52 @@
+'''
+Title: copySkinLayers (for ngSkinTools)
+Author: Leon Sooi
+Email: mail@leonsooi.com
+Date: May 21, 2014
+
+This script uses Maya's native "copySkinWeights" command to transfer
+ngSkinLayers across meshes of different topology. This is a rather
+convoluted work-around indeed, but the benefit is that we can take
+advantage of already existing functionality (e.g. copy by closest point,
+uvs, name, closest joint, label, etc.) 
+
+The script assumes that you already have ngSkinTools installed. It uses
+the ngSkinTools API and other UI elements from ngSkinTools.
+
+Limitations:
+- Transparency will probably not work. 
+  Use "Edit -> Convert Transparency to Mask" before running script
+- There are a number of warning messages, but they don't seem to
+  break anything (yet...)
+  
+Install:
+- Copy "copySkinLayers.py" into your scripts folder.
+- In Maya, run the python commands:
+
+from copySkinLayers import CopySkinLayersWindow
+cslWin = CopySkinLayersWindow.getInstance()
+cslWin.showWindow()
+    
+Use:
+- Ensure both source and destination meshes are bound to skinClusters
+  with necessary joints, and with skinning layers initialized
+- Select source mesh, shift-select destination mesh
+- Set options in the Copy Skin Layers window and click "Copy":
+
+    Surface Association: 
+        - "Closest point on surface" seems to work best
+        
+    Influence Association: 
+        - "Name" works best if you're using the same skeleton
+          (make sure you have the same joints bound to both meshes)
+        - "Closest joint" works well for most cases, but may break
+          if there are multiple joints on the same position.
+          
+    More information on copySkinWeights options:
+        - http://download.autodesk.com/global/docs/maya2014/en_us/files/Skin__Edit_Smooth_Skin__Copy_Skin_Weights.htm
+        - http://download.autodesk.com/global/docs/maya2014/en_us/CommandsPython/copySkinWeights.html
+'''
+
 import maya.cmds as mc
 
 from ngSkinTools.mllInterface import MllInterface 
@@ -48,7 +97,7 @@ class CopyLayersTab(BaseTab):
         buttons.append(('Close', self.closeWindow, ''))
         
         self.cmdLayout = self.createCommandLayout(buttons, SkinToolsDocs.INITWEIGHTTRANSFER_INTERFACE)
-        
+
         self.createSurfaceAssociationGroup()
         self.createInfluenceAssociationGroup()
         self.createOptionsGroup()
@@ -59,19 +108,16 @@ class CopyLayersTab(BaseTab):
         group = self.createUIGroup(self.cmdLayout.innerLayout, 'Surface Association')
         
         self.createFixedTitledRow(group, 'Surface Association')
-        mc.radioCollection()
+        self.controls.radioSurfaceCollection = mc.radioCollection()
         self.controls.radioClosestPoint = RadioButtonField(self.VAR_PREFIX+'closestPoint', defaultValue=1, label='Closest point on surface', 
                                                            annotation='Closest point on surface')
         self.controls.radioRaycast = RadioButtonField(self.VAR_PREFIX+'rayCast', defaultValue=0, label='Ray cast', 
                                                            annotation='Ray cast')
         self.controls.radioClosestComponent = RadioButtonField(self.VAR_PREFIX+'closestComponent', defaultValue=0, label='Closest component', 
                                                            annotation='Closest component')
-        """
-        # To be added - transfer weights by UVs
-        self.controls.radioUVSpace = RadioButtonField(self.VAR_PREFIX+'UVSpace', defaultValue=1, label='UV space', 
+        self.controls.radioUVSpace = RadioButtonField(self.VAR_PREFIX+'UVSpace', defaultValue=0, label='UV space', 
                                                            annotation='UV space')
-                                                           """
-        
+                                                           
         self.createFixedTitledRow(group, 'Sample space')
         self.controls.sampleSpace = DropDownField(self.VAR_PREFIX+'sampleSpace')
         self.controls.sampleSpace.beginRebuildItems()
@@ -123,15 +169,82 @@ class CopyLayersTab(BaseTab):
     def copySkinLayers(self, *args):
         '''
         '''
+        uv = None
+        #=======================================================================
         # get layers that we want to copy
-        layers = []
+        #=======================================================================
         
-        print 'selLayers: ', self.controls.selLayers.getValue()
+        # print 'selLayers: ', self.controls.selLayers.getValue()
         if self.controls.selLayers.getValue():
             # if set to "Selected layers in lister"
             layerLister = MainWindow.getInstance().targetUI.layersUI.getSelectedLayers()
-            print 'LayerLister: ', layerLister
+            # print 'LayerLister: ', layerLister
+        else:
+            # use all layers
+            layerLister = []
         
+        #===================================================================
+        # surface association
+        #===================================================================
+        if self.controls.radioClosestPoint.getValue():
+            surfaceAssociation = 'closestPoint'
+        elif self.controls.radioRaycast.getValue():
+            surfaceAssociation = 'rayCast'
+        elif self.controls.radioClosestComponent.getValue():
+            surfaceAssociation = 'closestComponent'
+        elif self.controls.radioUVSpace.getValue():
+            surfaceAssociation = 'closestPoint'
+            uvSets = mc.polyUVSet(q=True, currentUVSet=True)
+            if len(uvSets) > 0:
+                srcSet = uvSets[0]
+                destSet = uvSets[-1]
+                uv = srcSet, destSet
+        else:
+            mc.warning('Unknown surface association')
+            
+        sampleSpace = self.controls.sampleSpace.getValue()
+        
+        #=======================================================================
+        # influence association
+        #=======================================================================
+        associationNameMap = {'None': None,
+                            'Closest joint': 'closestJoint',
+                            'Closest bone': 'closestBone',
+                            'One to one': 'oneToOne',
+                            'Label': 'label',
+                            'Name': 'name'}
+        
+        influenceAssociation = []
+        for index in range(3):
+            association = self.controls.__dict__['influenceAssoc%d' % (index+1)].getSelectedText()
+            influenceAssociation.append(associationNameMap[association])
+        
+        normalize = 1 - self.controls.normalization.getValue()
+        
+        '''
+        print surfaceAssociation
+        print sampleSpace
+        print influenceAssociation
+        print layerLister
+        print normalize
+        '''
+        
+        sel = mc.ls(os=True)
+        if len(sel) == 2:
+            srcMeshName, destMeshName = sel[:2]
+        else:
+            mc.error('Select source mesh, then shift-select destination mesh.')
+        
+        args = [srcMeshName, destMeshName, layerLister, 
+               influenceAssociation, surfaceAssociation, 
+               sampleSpace, normalize]
+        
+        if uv:
+            args.append(uv)
+        
+        copySkinLayers(*args)
+        
+        mc.select(destMeshName)
         
     def closeWindow(self, *args):
         '''
@@ -198,30 +311,8 @@ def getLayerName(mll, layerId):
     for curLayerId, layerName in layers:
         if curLayerId == layerId:
             return layerName
-        
-        
-def getLayerId(mll, layerName):
-    '''
-    get layerId from name
-    '''
-    layers = mll.listLayers()
-    
-    for layerId, curLayerName in layers:
-        if curLayerName == layerName:
-            return layerId
-        
-        
-def getInfluenceId(mll, layerId, influenceName):
-    '''
-    get influenceId from name
-    '''
-    influences = mll.listLayerInfluences(layerId, False)
-    
-    for name, index in influences:
-        if influenceName == name:
-            return index
-        
-
+     
+     
 def setInfluenceWeight(skn, mesh, influenceName, weightList):
     '''
     Set weights on influence using a float list
@@ -229,31 +320,13 @@ def setInfluenceWeight(skn, mesh, influenceName, weightList):
     for vertId in range(len(weightList)):
         if weightList[vertId]:
             mc.skinPercent(skn, mesh+'.vtx[%d]'%vertId, transformValue=[influenceName, weightList[vertId]])
-   
-def getAllLayersNames(mll):
-    '''
-    returns list of layer names
-    '''
-    layerNames = []
-    layersIter = mll.listLayers()
-    
-    for layerId, layerName in layersIter:
-        layerNames.append(layerName)
-        
-    return layerNames
 
 
-def copySkinLayersGo():
+def copySkinLayers(srcMeshName, destMeshName, layers, influenceAssociation, surfaceAssociation, sampleSpace, normalize, uv=None):
     '''
-    Execute copySkinLayers from the UI
-    
-    Select srcMesh, shift-select destMesh
-    [Optional] select layers in the lister (if no layers selected, all will be copied)
-    Execute procedure.
+    layers [list] - ids of layers to be copied
+    if layers is [], all layers will be copied
     '''
-    
-    srcMeshName, destMeshName = mc.ls(os=True)[:2]
-    
     srcMll = MllInterface()
     destMll = MllInterface()
     
@@ -263,59 +336,44 @@ def copySkinLayersGo():
     # check that selected objects are valid
     if False in (srcMll.getLayersAvailable(), destMll.getLayersAvailable()):
         mc.error("Skinning layers must be initialized on both source and destination meshes")
-        
-    # get selected layers
-    selectedLayerIds = LayerDataModel.getInstance().layerListsUI.getSelectedLayers() # returns list of layerIds
-    # convert to layerNames, to be consistent with other procedures
-    selectedLayerNames = []
-    for layerId, layerName in srcMll.listLayers():
-        if layerId in selectedLayerIds:
-            selectedLayerNames.append(layerName)
-                
-    # get options set in UI
-    # hard code for now
-    influenceAssociation = 'name'
-    surfaceAssociation = 'closestPoint'
-    sampleSpace = 0
     
-    # execute
-    copySkinLayers(srcMeshName, destMeshName, selectedLayerNames, influenceAssociation, surfaceAssociation, sampleSpace)
-
-def copySkinLayers(srcMeshName, destMeshName, layers=None, influenceAssociation='closestJoint', surfaceAssociation='closestComponent', sampleSpace=0):
-    '''
-    layers [list] - names of layers to be copied
-    if layers=None, all layers will be copied
-    '''
-    srcMll = MllInterface()
-    destMll = MllInterface()
-    
-    srcMll.setCurrentMesh(srcMeshName)
-    destMll.setCurrentMesh(destMeshName)
-    
-    if not layers:
-        layers = getAllLayersNames(srcMll)
+    if layers == []:
+        layers = [layerId for layerId, _ in srcMll.listLayers()]
+        layers.reverse()
         
     for eachLayer in layers:
-        copySkinLayerByName(srcMeshName, destMeshName, eachLayer, influenceAssociation, surfaceAssociation, sampleSpace)
+        copySkinLayerById(srcMll, destMll, eachLayer, influenceAssociation, surfaceAssociation, sampleSpace, normalize, uv)
      
 
-def copySkinLayerByName(srcMeshName, destMeshName, layerName, influenceAssociation='closestJoint', surfaceAssociation='closestComponent', sampleSpace=0):
+def copySkinLayerById(srcMll, destMll, srcLayerId, influenceAssociation, surfaceAssociation, sampleSpace, normalize, uv=None):
     '''
-    Actual work is done here. Copies an individual layer from srcMesh to destMesh
-    '''  
-    srcMll = MllInterface()
-    destMll = MllInterface()
+    Actual work is done here. Copies an individual layer from srcMll to destMll
+    '''
     
-    srcMll.setCurrentMesh(srcMeshName)
-    destMll.setCurrentMesh(destMeshName)
+    layerName = getLayerName(srcMll, srcLayerId)
+
+    mc.progressWindow(title='Copy layer: %s' % layerName,
+                      progress=0, min=0, max=6,
+                      status='Get layer mask')
     
-    _, srcSkn = srcMll.getTargetInfo()
-    _, destSkn = destMll.getTargetInfo()
+    srcMeshName, srcSkn = srcMll.getTargetInfo()
+    destMeshName, destSkn = destMll.getTargetInfo()
     
-    # get layerId from layerName, and check that this is a valid layer
-    srcLayerId = getLayerId(srcMll, layerName)
-    if not srcLayerId:
-        mc.error('%s is an invalid layer.' % layerName)
+    # parse args
+    kwargs = {'ss': srcSkn,
+              'ds': destSkn, 
+              'ia': influenceAssociation, 
+              'sa': surfaceAssociation,
+              'spa': sampleSpace, 
+              'nr': normalize,
+              'nm': True}
+    
+    if uv:
+        kwargs['uv'] = uv
+    
+    # check that selected objects are valid
+    if False in (srcMll.getLayersAvailable(), destMll.getLayersAvailable()):
+        mc.error("Skinning layers must be initialized on both source and destination meshes")
     
     # solo layer on srcMesh
     disableLayers = soloLayer(srcMll, srcLayerId)
@@ -329,11 +387,13 @@ def copySkinLayerByName(srcMeshName, destMeshName, layerName, influenceAssociati
     #===========================================================================
     # Transfer influence weights
     #===========================================================================
+    mc.progressWindow(e=True, status='Get influence weights', step=1)
     
     # use maya's copySkinWeights command to transfer weights
-    mc.copySkinWeights(ss=srcSkn, ds=destSkn, ia=influenceAssociation, sa=surfaceAssociation, spa=sampleSpace)
+    mc.copySkinWeights(**kwargs)
     
     # query and catch weights
+    mc.progressWindow(e=True, status='Transfer influence weights', step=1)
     destInfluenceWeights = queryWeights(destSkn, destMeshName)
     
     #===========================================================================
@@ -345,7 +405,7 @@ def copySkinLayerByName(srcMeshName, destMeshName, layerName, influenceAssociati
     #===========================================================================
     
     mc.select(cl=True)
-    
+    mc.progressWindow(e=True, status='Transfer layer mask', step=1)
     if origMaskWeights:
         # create tempJnt
         tempJnt = mc.joint(n='layerMaskTransfer_tempJnt')
@@ -362,7 +422,8 @@ def copySkinLayerByName(srcMeshName, destMeshName, layerName, influenceAssociati
         # use maya's copySkinWeights command, with name as influence association
         mc.skinCluster(destSkn, edit=True, addInfluence=tempJnt)
         mc.skinCluster(destSkn, edit=True, addInfluence=tempHoldJnt)
-        mc.copySkinWeights(ss=srcSkn, ds=destSkn, ia="name", sa=surfaceAssociation, spa=sampleSpace)
+        kwargs['ia'] = 'name'
+        mc.copySkinWeights(**kwargs)
         
         # query and catch weights
         destMaskWeights = queryWeights(destSkn, destMeshName)[-2]
@@ -392,17 +453,28 @@ def copySkinLayerByName(srcMeshName, destMeshName, layerName, influenceAssociati
     # Add layer to destination skin
     #===========================================================================
     # print destInfluenceWeights
-    
+    mc.progressWindow(e=True, status='Set influence weights', step=1)
     destLayerId = destMll.createLayer(layerName, forceEmpty=True)
     
     influenceCount = len(mc.skinCluster(destSkn, q=True, inf=True))
     
+    layerInfluences = list(destMll.listLayerInfluences(destLayerId, False))
+    if len(layerInfluences) != influenceCount:
+        mc.error('SkinCluster %s has %d influences. But SkinLayer has %s influences.\
+                Try rebinding this mesh.' % (destSkn, influenceCount, len(layerInfluences)))
+    
     # set influence weights
     for influenceId in range(influenceCount):
         weights = destInfluenceWeights[influenceId]
+        layerInfluenceId = layerInfluences[influenceId][1]
         # check if the influence has non-zero values, to reduce number of calls
         if not all(val==0 for val in weights):
-            destMll.setInfluenceWeights(destLayerId, influenceId, weights)
+            destMll.setInfluenceWeights(destLayerId, layerInfluenceId, weights)
         
     # set mask weights
+    mc.progressWindow(e=True, status='Set layer mask', step=1)
     destMll.setLayerMask(destLayerId, destMaskWeights)
+    
+    mc.progressWindow(endProgress=True)
+    
+    print 'Sucessfully copied layer %s' % layerName
