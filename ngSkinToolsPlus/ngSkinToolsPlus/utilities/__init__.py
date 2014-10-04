@@ -1,6 +1,9 @@
 from ngSkinTools.mllInterface import MllInterface
 from ngSkinTools.importExport import LayerData, Layer, Influence
+from ngSkinTools.importExport import XmlImporter
 import maya.cmds as cmds
+
+import pymel.core as pm
 
 '''
 Quick hacks just to get the job done when needed. Should be modularized properly some time...
@@ -47,6 +50,55 @@ also, if the influence long names have changed
 we can use this to find match influences by shortName, and update the longNames
 obviously, it assumes that names are unique!
 '''
+def loadXmlFile(filepath):
+    '''
+    # example process for importing XML data
+    filepath = r"C:\Users\Leon\Documents\maya\projects\Ori\scenes\ori_body_weights_v037.xml"
+    xml = loadXmlFile(filepath)
+    from ngSkinTools.importExport import XmlImporter
+    # create layers from
+    importer = XmlImporter()
+    # load layer data
+    data = importer.process(xml)
+    '''
+    f = open(filepath, 'r')
+    try:
+        contents = ''.join(f.readlines())
+    finally:
+        f.close();
+    
+    importer = XmlImporter()
+    data = importer.process(contents)
+    return data
+
+def findUnmatchedInfluences(data, printOut=True):
+    '''
+    parse data and find unmatchable influences
+    
+    findUnmatchedInfluences(data)
+    '''
+    unmatched = []
+    for influence in data.getAllInfluences():
+        if not pm.objExists(influence):
+            unmatched.append(influence.split('|')[-1])
+    if printOut:
+        print unmatched
+    return unmatched
+
+def matchInfluencesByNodeName(data):
+    '''
+    match influences by nodeName
+    assumes all influence names are unique
+    
+    matchInfluencesByNodeName(data)
+    data.saveTo('GEO:CT_body_geo')
+    '''
+    for layer in data.layers:
+        for influence in layer.influences:
+            oldLongName = influence.influenceName
+            shortName = oldLongName.split('|')[-1]
+            newLongName = cmds.ls(shortName, l=True)[0]
+            influence.influenceName = newLongName
 
 def editJson(jsonDict):
     for eachLayer in jsonDict["layers"]:
